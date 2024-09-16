@@ -1,0 +1,96 @@
+Requête 1 : En excluant les commandes annulées, quelles sont les commandes
+récentes de moins de 3 mois que les clients ont reçues avec au moins 3
+jours de retard ?
+
+"""
+select
+*
+from orders
+WHERE 
+order_purchase_timestamp > date((SELECT MAX(order_purchase_timestamp) FROM orders), '-3 months')
+AND order_status <> 'canceled'
+AND order_delivered_customer_date IS NOT NULL
+AND JULIANDAY(order_delivered_customer_date) - JULIANDAY(order_estimated_delivery_date) >= 3;
+"""
+
+Requête 2 : Qui sont les vendeurs ayant généré un chiffre d'affaires de plus de 100
+000 Real sur des commandes livrées via Olist ?
+
+"""
+WITH table_ca AS
+(
+select
+    oi.order_id,
+    oi.product_id,
+    oi.seller_id,
+    oi.price,
+    oi.freight_value,
+    o.order_status
+from 
+order_items oi, orders o
+where oi.order_id = o.order_id
+)
+SELECT
+    seller_id,
+    SUM(price + freight_value) AS total_ca
+FROM table_ca
+GROUP BY seller_id
+HAVING total_ca > 100000;
+"""
+
+Requête 3 : Qui sont les nouveaux vendeurs (moins de 3 mois d'ancienneté) qui
+sont déjà très engagés avec la plateforme (ayant déjà vendu plus de 30
+produits) ?
+
+"""
+With nb_pdt_seller as
+(
+select
+    oi.seller_id,
+    oi.product_id,
+    o.order_status,
+    o.order_purchase_timestamp
+from order_items oi, orders o
+WHERE oi.order_id = o.order_id
+)
+Select
+    seller_id,
+    product_id,
+    count(*) as produits_vendus,
+    order_purchase_timestamp,
+    order_status
+from nb_pdt_seller
+group by seller_id
+having min(order_purchase_timestamp) > date((SELECT MAX(order_purchase_timestamp) FROM orders), '-3 months')
+AND order_status in ('delivered', 'shipped')
+AND produits_vendus > 30;
+"""
+
+Requête 4 : Quels sont les 5 codes postaux, enregistrant plus de 30 commandes,
+avec le pire review score moyen sur les 12 derniers mois ?
+
+"""
+WITH tmp_table AS
+(
+SELECT
+    o.order_id,
+    o.customer_id,
+    o.order_purchase_timestamp,
+    avg(rev.review_score) as review_score
+FROM orders o
+LEFT JOIN order_reviews rev ON rev.order_id = o.order_id
+GROUP BY o.order_id, o.customer_id
+HAVING o.order_purchase_timestamp > date(MAX(o.order_purchase_timestamp), '-12 months') 
+)
+
+SELECT 
+    c.customer_zip_code_prefix,
+    count(tt.order_id) as nombre_commandes,
+    avg(tt.review_score) as score_moyen
+FROM customers c
+LEFT JOIN tmp_table tt ON tt.customer_id = c.customer_id
+GROUP BY c.customer_zip_code_prefix
+HAVING nombre_commandes > 30
+ORDER BY score_moyen
+LIMIT 5;
+"""
